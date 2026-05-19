@@ -1,5 +1,7 @@
 # 技术方案与数据流
 
+仓库地址：https://github.com/cndaqiang/cfimapmail
+
 ## 架构组件
 
 - **Worker 入口**：负责页面渲染、健康检查、邮件列表 API 和单封正文 API

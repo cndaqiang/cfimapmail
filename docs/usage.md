@@ -1,5 +1,7 @@
 # 使用手册
 
+仓库地址：https://github.com/cndaqiang/cfimapmail
+
 ## 基本使用
 
 1. 打开首页

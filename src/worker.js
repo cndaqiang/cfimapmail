@@ -1,5 +1,7 @@
 import { connect } from 'cloudflare:sockets';
 
+// Repository: https://github.com/cndaqiang/cfimapmail
+
 const DEFAULT_MESSAGE_LIMIT = 20;
 const MAX_MESSAGE_LIMIT = 50;
 const PREVIEW_BYTES = 2048;
@@ -767,15 +769,19 @@ function createHomeResponse() {
   <title>Cloudflare IMAP</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --card: #1f2937;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --border: #334155;
-      --accent: #38bdf8;
-      --accent-2: #22c55e;
-      --danger: #fb7185;
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --bg-soft: #eef2ff;
+      --panel: rgba(255, 255, 255, 0.86);
+      --card: #ffffff;
+      --text: #182033;
+      --muted: #697386;
+      --border: #dfe4ef;
+      --accent: #4f46e5;
+      --accent-2: #06b6d4;
+      --accent-soft: #eef2ff;
+      --danger: #e11d48;
+      --shadow: 0 18px 45px rgba(79, 70, 229, 0.12);
     }
 
     * { box-sizing: border-box; }
@@ -784,43 +790,42 @@ function createHomeResponse() {
       margin: 0;
       min-height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #1e3a8a 0, var(--bg) 45%);
+      background:
+        radial-gradient(circle at 15% 0%, rgba(79, 70, 229, 0.18), transparent 32%),
+        linear-gradient(180deg, var(--bg-soft), var(--bg));
       color: var(--text);
     }
 
     .app {
-      width: min(1080px, 100%);
+      width: min(980px, 100%);
       margin: 0 auto;
-      padding: 32px 16px;
+      padding: 18px 12px 28px;
     }
 
     .hero {
-      text-align: center;
-      margin-bottom: 24px;
+      margin-bottom: 14px;
     }
 
     .hero h1 {
-      margin: 0 0 8px;
-      font-size: clamp(30px, 6vw, 52px);
-    }
-
-    .hero p {
       margin: 0;
-      color: var(--muted);
+      font-size: clamp(26px, 8vw, 40px);
+      letter-spacing: -0.04em;
     }
 
     .layout {
       display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 18px;
+      grid-template-columns: 340px 1fr;
+      gap: 14px;
+      align-items: start;
     }
 
     .panel {
-      background: rgba(17, 24, 39, 0.9);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+      background: var(--panel);
+      border: 1px solid rgba(223, 228, 239, 0.9);
+      border-radius: 24px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
     }
 
     .field { margin-bottom: 14px; }
@@ -835,23 +840,26 @@ function createHomeResponse() {
     input {
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: 14px;
+      padding: 13px 12px;
       color: var(--text);
-      background: #0b1120;
+      background: rgba(255, 255, 255, 0.92);
       outline: none;
+      font-size: 16px;
     }
 
     input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
     }
 
     .row {
       display: grid;
-      grid-template-columns: 1fr 110px 110px;
+      grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
+
+    .row .field:first-child { grid-column: 1 / -1; }
 
     .checkbox {
       display: flex;
@@ -872,15 +880,17 @@ function createHomeResponse() {
 
     .btn {
       border: 0;
-      border-radius: 12px;
-      padding: 11px 14px;
-      color: #03121f;
+      border-radius: 14px;
+      padding: 12px 15px;
+      color: #ffffff;
       cursor: pointer;
-      font-weight: 700;
+      font-weight: 800;
+      font-size: 15px;
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.18);
     }
 
     .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
-    .btn.secondary { background: #334155; color: var(--text); }
+    .btn.secondary { background: #e8edf8; color: #334155; box-shadow: none; }
     .btn:disabled { cursor: not-allowed; opacity: 0.65; }
 
     .notice {
@@ -903,23 +913,27 @@ function createHomeResponse() {
     }
 
     .mail {
-      background: rgba(31, 41, 55, 0.85);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px;
+      background: var(--card);
+      border: 1px solid rgba(223, 228, 239, 0.95);
+      border-radius: 20px;
+      padding: 15px;
       cursor: pointer;
-      transition: border-color 0.15s ease, background 0.15s ease;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     .mail.open {
-      border-color: var(--accent);
-      background: rgba(31, 41, 55, 0.98);
+      border-color: rgba(79, 70, 229, 0.55);
+      box-shadow: 0 16px 38px rgba(79, 70, 229, 0.14);
     }
+
+    .mail:active { transform: scale(0.99); }
 
     .mail h3 {
       margin: 0 0 8px;
-      font-size: 18px;
-      color: #f8fafc;
+      font-size: 17px;
+      line-height: 1.35;
+      color: #111827;
       word-break: break-word;
     }
 
@@ -934,8 +948,8 @@ function createHomeResponse() {
 
     .preview {
       margin: 0;
-      color: #cbd5e1;
-      line-height: 1.6;
+      color: #475569;
+      line-height: 1.65;
       word-break: break-word;
     }
 
@@ -947,8 +961,8 @@ function createHomeResponse() {
     }
 
     .meta-line strong {
-      color: #cbd5e1;
-      font-weight: 600;
+      color: #334155;
+      font-weight: 700;
     }
 
     .body {
@@ -956,8 +970,8 @@ function createHomeResponse() {
       margin-top: 12px;
       padding-top: 12px;
       border-top: 1px solid var(--border);
-      color: #e2e8f0;
-      line-height: 1.65;
+      color: #1f2937;
+      line-height: 1.72;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -982,8 +996,27 @@ function createHomeResponse() {
       font-size: 13px;
     }
 
+    .footer a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .footer a:active { opacity: 0.75; }
+
     @media (max-width: 820px) {
-      .layout { grid-template-columns: 1fr; }
+      .app { padding: 14px 10px 24px; }
+      .layout { grid-template-columns: 1fr; gap: 12px; }
+      .panel { border-radius: 22px; padding: 14px; }
+      .row { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .actions { display: grid; grid-template-columns: 1fr; }
+      .btn { width: 100%; }
+      .mail { border-radius: 18px; padding: 14px; }
+      .meta { display: grid; gap: 4px; }
+    }
+
+    @media (max-width: 430px) {
+      .hero h1 { font-size: 28px; }
     }
   </style>
 </head>
@@ -991,7 +1024,6 @@ function createHomeResponse() {
   <div class="app">
     <div class="hero">
       <h1>Cloudflare IMAP</h1>
-      <p>通过 Cloudflare Workers 拉取最近邮件的元信息和 plain text 预览，点击后再读取正文。</p>
     </div>
 
     <div class="layout">
@@ -1027,9 +1059,6 @@ function createHomeResponse() {
           <button id="clearBtn" class="btn secondary" type="button">清空本地保存</button>
         </div>
         <div id="notice" class="notice"></div>
-        <div class="tips">
-          第一版使用 IMAPS/TLS 直连，推荐端口 993。密码只会提交给当前 Worker 用于本次 IMAP 登录，Worker 不做服务端存储。
-        </div>
       </section>
 
       <section class="panel">
@@ -1039,7 +1068,7 @@ function createHomeResponse() {
       </section>
     </div>
 
-    <div class="footer">Cloudflare Workers · IMAPS 993 · 本地浏览器保存</div>
+    <div class="footer">Cloudflare Workers · <a href="https://github.com/cndaqiang/cfimapmail" target="_blank" rel="noopener noreferrer">GitHub</a></div>
   </div>
 
   <script>
