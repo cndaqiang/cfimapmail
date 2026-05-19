@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wrangler-dev",
+      "runtimeExecutable": "wrangler",
+      "runtimeArgs": ["dev"],
+      "port": 8787
+    }
+  ]
+}

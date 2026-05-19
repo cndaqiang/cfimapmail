@@ -1,0 +1,6 @@
+name = "cfmail-imap"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# Workers 配置
+workers_dev = true
