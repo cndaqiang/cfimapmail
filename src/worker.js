@@ -2,7 +2,7 @@ import { connect } from 'cloudflare:sockets';
 
 // Repository: https://github.com/cndaqiang/cfimapmail
 
-const DEFAULT_MESSAGE_LIMIT = 20;
+const DEFAULT_MESSAGE_LIMIT = 5;
 const MAX_MESSAGE_LIMIT = 50;
 const PREVIEW_BYTES = 2048;
 const BODY_BYTES = 64 * 1024;
@@ -1043,7 +1043,7 @@ function createHomeResponse() {
           </div>
           <div class="field">
             <label for="limitInput">数量</label>
-            <input id="limitInput" type="number" min="1" max="50" value="20">
+            <input id="limitInput" type="number" min="1" max="50" value="5">
           </div>
         </div>
         <div class="field">
@@ -1140,7 +1140,7 @@ function createHomeResponse() {
       return {
         host: hostInput.value.trim(),
         port: Number(portInput.value || 993),
-        limit: Number(limitInput.value || 20),
+        limit: Number(limitInput.value || 5),
         email: emailInput.value.trim(),
         password: passwordInput.value
       };
