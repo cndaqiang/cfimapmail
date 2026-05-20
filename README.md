@@ -1,8 +1,9 @@
 # Cloudflare IMAP - 邮件读取工具
 
-**基于 Cloudflare Workers 的轻量 IMAP 邮件读取页面。**
+<div align="center">
+<img src="docs/demo.png" width="500" alt="Demo">
 
-仓库地址：https://github.com/cndaqiang/cfimapmail
+**基于 Cloudflare Workers 的轻量 IMAP 邮件读取页面。**
 
 ## ✅ 特性
 
