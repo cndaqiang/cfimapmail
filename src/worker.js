@@ -330,8 +330,13 @@ function applyFetchMetadata(current, line) {
   const uidMatch = line.match(/\bUID\s+(\d+)/i);
   if (uidMatch) current.uid = uidMatch[1];
 
-  const bodyStructureMatch = line.match(/BODYSTRUCTURE\s+([\s\S]*?)(?:\s+BODY\[|\s+UID\s+\d+|\)\s*$)/i);
-  if (bodyStructureMatch) current.bodyStructure = trimFetchValue(bodyStructureMatch[1]);
+  const bodyStructureIndex = line.search(/BODYSTRUCTURE\s+/i);
+  if (bodyStructureIndex >= 0) {
+    const structureStart = line.indexOf('(', bodyStructureIndex);
+    if (structureStart >= 0) {
+      current.bodyStructure = readParenthesized(line, structureStart);
+    }
+  }
 }
 
 function buildMessageMetadata(item) {
@@ -365,7 +370,7 @@ function findHtmlTextPart(bodyStructure, headers = {}) {
   if (match) {
     const section = readParenthesized(value, match.index);
     return {
-      part: inferPartNumber(value.slice(0, match.index)),
+      part: isSingleTextPart(value, match.index) ? 'TEXT' : inferPartNumber(value.slice(0, match.index)),
       charset: extractBodyParam(section, 'CHARSET') || 'utf-8',
       encoding: extractTransferEncoding(section),
       isHtml: true
@@ -401,10 +406,6 @@ function extractHeaderParam(value, name) {
   const pattern = new RegExp('(?:^|;)\\s*' + name + '\\s*=\\s*(?:"([^"]+)"|([^;]+))', 'i');
   const match = String(value || '').match(pattern);
   return match ? String(match[1] || match[2] || '').trim() : '';
-}
-
-function trimFetchValue(value) {
-  return String(value || '').replace(/\s+\)$/g, '').trim();
 }
 
 function readParenthesized(value, startIndex) {
@@ -443,12 +444,12 @@ function findPlainTextPart(bodyStructure) {
   const value = String(bodyStructure || '');
   if (!value) return { part: '', charset: 'utf-8', encoding: '' };
 
-  const textPlainPattern = /\("TEXT"\s+"PLAIN"[\s\S]*?\)/gi;
+  const textPlainPattern = /\(\s*"TEXT"\s+"PLAIN"/gi;
   let match;
   while ((match = textPlainPattern.exec(value))) {
     const before = value.slice(0, match.index);
-    const part = inferPartNumber(before);
-    const section = match[0];
+    const part = isSingleTextPart(value, match.index) ? 'TEXT' : inferPartNumber(before);
+    const section = readParenthesized(value, match.index);
     return {
       part,
       charset: extractBodyParam(section, 'CHARSET') || 'utf-8',
@@ -456,7 +457,7 @@ function findPlainTextPart(bodyStructure) {
     };
   }
 
-  if (/^\("TEXT"\s+"PLAIN"/i.test(value)) {
+  if (/^\(\s*"TEXT"\s+"PLAIN"/i.test(value)) {
     return {
       part: 'TEXT',
       charset: extractBodyParam(value, 'CHARSET') || 'utf-8',
@@ -467,21 +468,61 @@ function findPlainTextPart(bodyStructure) {
   return { part: '', charset: 'utf-8', encoding: '' };
 }
 
+function isSingleTextPart(bodyStructure, partStartIndex) {
+  return partStartIndex === 0 && /^\(\s*"TEXT"\s+"(?:PLAIN|HTML)"/i.test(String(bodyStructure || ''));
+}
+
 function inferPartNumber(before) {
+  const parts = [];
   const stack = [];
+  let currentPart = 0;
+
   for (let i = 0; i < before.length; i++) {
     const char = before[i];
+
+    if (char === '"') {
+      if (/^"[A-Z]+"\s+"[A-Z0-9.+-]+"/i.test(before.slice(i))) {
+        currentPart += 1;
+      }
+      i = skipQuotedToken(before, i);
+      continue;
+    }
+
     if (char === '(') {
-      stack.push(0);
+      stack.push(currentPart);
+      currentPart = 0;
     } else if (char === ')') {
-      stack.pop();
-    } else if (char === '"' && /^"[A-Z]+"\s+"[A-Z0-9.+-]+"/i.test(before.slice(i))) {
-      if (stack.length) stack[stack.length - 1] += 1;
-      i = skipQuotedPair(before, i);
+      if (currentPart > 0) {
+        parts.push(currentPart);
+      }
+      currentPart = stack.pop() || 0;
     }
   }
-  const parts = stack.filter((value) => value > 0);
+
+  if (currentPart > 0) {
+    parts.push(currentPart + 1);
+  } else if (parts.length) {
+    parts[parts.length - 1] += 1;
+  }
+
   return parts.length ? parts.join('.') : '1';
+}
+
+function skipQuotedToken(value, index) {
+  let escaped = false;
+
+  for (let i = index + 1; i < value.length; i++) {
+    const char = value[i];
+    if (escaped) {
+      escaped = false;
+    } else if (char === '\\') {
+      escaped = true;
+    } else if (char === '"') {
+      return i;
+    }
+  }
+
+  return index;
 }
 
 function skipQuotedPair(value, index) {
@@ -502,8 +543,62 @@ function extractBodyParam(section, name) {
 }
 
 function extractTransferEncoding(section) {
-  const quoted = Array.from(String(section || '').matchAll(/"([^"]*)"/g)).map((item) => item[1]);
-  return quoted[4] || '';
+  const tokens = parseBodyStructureTokens(section);
+  return tokens[5] || '';
+}
+
+function parseBodyStructureTokens(section) {
+  const tokens = [];
+  const value = String(section || '').trim();
+  let index = value.startsWith('(') ? 1 : 0;
+
+  while (index < value.length) {
+    while (/\s/.test(value[index])) index += 1;
+    if (index >= value.length || value[index] === ')') break;
+
+    if (value[index] === '"') {
+      const result = readQuotedToken(value, index);
+      tokens.push(result.value);
+      index = result.next;
+      continue;
+    }
+
+    if (value[index] === '(') {
+      const nested = readParenthesized(value, index);
+      tokens.push(nested);
+      index += nested.length;
+      continue;
+    }
+
+    const atomStart = index;
+    while (index < value.length && !/\s|\)/.test(value[index])) index += 1;
+    const atom = value.slice(atomStart, index);
+    tokens.push(/^NIL$/i.test(atom) ? '' : atom);
+  }
+
+  return tokens;
+}
+
+function readQuotedToken(value, startIndex) {
+  let result = '';
+  let escaped = false;
+
+  for (let i = startIndex + 1; i < value.length; i++) {
+    const char = value[i];
+
+    if (escaped) {
+      result += char;
+      escaped = false;
+    } else if (char === '\\') {
+      escaped = true;
+    } else if (char === '"') {
+      return { value: result, next: i + 1 };
+    } else {
+      result += char;
+    }
+  }
+
+  return { value: result, next: value.length };
 }
 
 function extractFetchLiteral(lines) {
@@ -766,7 +861,10 @@ function createHomeResponse() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cloudflare IMAP</title>
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="application-name" content="CF Mail">
+  <title>CF Mail · IMAP 邮件</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='56' y2='58'%3E%3Cstop stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Crect x='14' y='19' width='36' height='28' rx='6' fill='white'/%3E%3Cpath d='M17 23l15 13 15-13' fill='none' stroke='%234f46e5' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M19 43l9-9M45 43l-9-9' fill='none' stroke='%2306b6d4' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
     :root {
       color-scheme: light;
@@ -917,9 +1015,8 @@ function createHomeResponse() {
       border: 1px solid rgba(223, 228, 239, 0.95);
       border-radius: 20px;
       padding: 15px;
-      cursor: pointer;
       box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     .mail.open {
@@ -927,7 +1024,18 @@ function createHomeResponse() {
       box-shadow: 0 16px 38px rgba(79, 70, 229, 0.14);
     }
 
-    .mail:active { transform: scale(0.99); }
+    .mail-head {
+      cursor: pointer;
+      border-radius: 14px;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .mail-head:active { transform: scale(0.99); }
+
+    .mail-head:focus-visible {
+      outline: 3px solid rgba(79, 70, 229, 0.22);
+      outline-offset: 4px;
+    }
 
     .mail h3 {
       margin: 0 0 8px;
@@ -966,7 +1074,6 @@ function createHomeResponse() {
     }
 
     .body {
-      display: none;
       margin-top: 12px;
       padding-top: 12px;
       border-top: 1px solid var(--border);
@@ -974,9 +1081,11 @@ function createHomeResponse() {
       line-height: 1.72;
       white-space: pre-wrap;
       word-break: break-word;
+      cursor: text;
+      user-select: text;
+      -webkit-user-select: text;
     }
 
-    .mail.open .body { display: block; }
     .body.loading, .body.empty { color: var(--muted); }
 
     .empty {
@@ -1190,6 +1299,7 @@ function createHomeResponse() {
         item.dataset.loaded = 'false';
         const date = message.date ? new Date(message.date).toLocaleString() : '未知时间';
         item.innerHTML = [
+          '<div class="mail-head" role="button" tabindex="0" aria-expanded="false">',
           '<h3></h3>',
           '<div class="meta"><span></span><span></span></div>',
           '<div class="meta-line from"><strong>From:</strong> <span></span></div>',
@@ -1197,8 +1307,8 @@ function createHomeResponse() {
           '<div class="meta-line cc"><strong>Cc:</strong> <span></span></div>',
           '<div class="meta-line reply"><strong>Reply-To:</strong> <span></span></div>',
           '<div class="meta-line id"><strong>Message-ID:</strong> <span></span></div>',
-          '<p class="preview"></p>',
-          '<div class="body empty"></div>'
+          '</div>',
+          '<div class="body"></div>'
         ].join('');
         item.querySelector('h3').textContent = message.subject || '无主题';
         const spans = item.querySelectorAll('.meta span');
@@ -1209,11 +1319,21 @@ function createHomeResponse() {
         fillOptionalLine(item, '.cc span', message.cc);
         fillOptionalLine(item, '.reply span', message.replyTo);
         fillOptionalLine(item, '.id span', message.messageId);
-        item.querySelector('.preview').textContent = message.hasPlainText
+        const bodyEl = item.querySelector('.body');
+        const previewText = message.hasPlainText
           ? (message.preview || '无正文预览')
           : '未找到 plain text 正文';
-        item.querySelector('.body').textContent = '点击读取 plain text 正文';
-        item.addEventListener('click', () => toggleMessageBody(item, message));
+        message.previewText = previewText;
+        message.loadedBody = '';
+        bodyEl.textContent = previewText;
+        const headEl = item.querySelector('.mail-head');
+        headEl.addEventListener('click', () => toggleMessageBody(item, message));
+        headEl.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleMessageBody(item, message);
+          }
+        });
         messagesEl.appendChild(item);
       }
     }
@@ -1230,17 +1350,28 @@ function createHomeResponse() {
 
     async function toggleMessageBody(item, message) {
       const bodyEl = item.querySelector('.body');
+      const headEl = item.querySelector('.mail-head');
       if (item.classList.contains('open')) {
         item.classList.remove('open');
+        headEl.setAttribute('aria-expanded', 'false');
+        bodyEl.className = message.hasPlainText ? 'body' : 'body empty';
+        bodyEl.textContent = message.previewText || '无正文预览';
         return;
       }
       item.classList.add('open');
-      if (item.dataset.loaded === 'true') return;
+      headEl.setAttribute('aria-expanded', 'true');
+
+      if (item.dataset.loaded === 'true') {
+        bodyEl.className = message.loadedBody ? 'body' : 'body empty';
+        bodyEl.textContent = message.loadedBody || message.loadedMessage || '未找到 plain text 正文';
+        return;
+      }
 
       if (!message.hasPlainText) {
         bodyEl.className = 'body empty';
         bodyEl.textContent = '未找到 plain text 正文';
         item.dataset.loaded = 'true';
+        message.loadedMessage = '未找到 plain text 正文';
         return;
       }
 
@@ -1257,11 +1388,14 @@ function createHomeResponse() {
         if (!response.ok) {
           throw new Error(data.details || data.error || '读取正文失败');
         }
-        bodyEl.className = data.body ? 'body' : 'body empty';
-        bodyEl.textContent = data.body || data.message || '未找到 plain text 正文';
+        let content = data.body || data.message || '未找到 plain text 正文';
         if (data.truncated) {
-          bodyEl.textContent += '\\n\\n[正文较长，当前只显示前 64KB]';
+          content += '\\n\\n[正文较长，当前只显示前 64KB]';
         }
+        message.loadedBody = data.body ? content : '';
+        message.loadedMessage = data.body ? '' : content;
+        bodyEl.className = data.body ? 'body' : 'body empty';
+        bodyEl.textContent = content;
         item.dataset.loaded = 'true';
       } catch (error) {
         bodyEl.className = 'body empty';
