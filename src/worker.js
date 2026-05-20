@@ -632,6 +632,7 @@ function decodePlainTextBody(raw, metadata) {
 function htmlToText(value) {
   return String(value || '')
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<a\b([^>]*)>([\s\S]*?)<\s*\/\s*a\s*>/gi, anchorToText)
     .replace(/<\s*br\s*\/?\s*>/gi, '\n')
     .replace(/<\s*\/\s*(p|div|section|article|header|footer|li|tr|h[1-6])\s*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -649,6 +650,14 @@ function htmlToText(value) {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function anchorToText(match, attributes, text) {
+  const label = String(text || '').replace(/<[^>]+>/g, '').trim();
+  const hrefMatch = String(attributes || '').match(/\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+  const href = hrefMatch ? String(hrefMatch[2] || hrefMatch[3] || hrefMatch[4] || '').trim() : '';
+  if (!href || label === href) return label || href;
+  return `${label}\n${href}`;
 }
 
 function toPublicMessage(message) {
